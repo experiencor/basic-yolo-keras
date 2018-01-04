@@ -44,12 +44,16 @@ The configuration file is a json file and looks like this:
 import argparse
 import os
 import numpy as np
+import cv2
 from preprocessing import parse_annotation
 from frontend import YOLO
 import json
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+try:
+    os.environ["CUDA_VISIBLE_DEVICES"]
+except KeyError:    
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 argparser = argparse.ArgumentParser(
     description='Train and validate YOLO_v2 model on any dataset')
@@ -71,13 +75,13 @@ def _main_(args):
     ###############################
 
     # parse annotations of the training set
-    train_imgs, train_labels = parse_annotation(config['train']['train_annot_folder'], 
+    train_imgs, train_labels, depth = parse_annotation(config['train']['train_annot_folder'], 
                                                 config['train']['train_image_folder'], 
                                                 config['model']['labels'])
 
     # parse annotations of the validation set, if any, otherwise split the training set
     if os.path.exists(config['valid']['valid_annot_folder']):
-        valid_imgs, valid_labels = parse_annotation(config['valid']['valid_annot_folder'], 
+        valid_imgs, valid_labels, depth = parse_annotation(config['valid']['valid_annot_folder'], 
                                                     config['valid']['valid_image_folder'], 
                                                     config['model']['labels'])
     else:
@@ -90,6 +94,16 @@ def _main_(args):
     
     overlap_labels = set(config['model']['labels']).intersection(set(train_labels.keys()))
 
+     # Read first image and check the image depth. Give a warning if image depth and depth given in annotation is different 
+    img_first = cv2.imread(train_imgs[0]['filename'])
+    isgrey = np.all(img_first[:,:,0] == img_first[:,:,1]) and  np.all(img_first[:,:,0] == img_first[:,:,2])
+    if isgrey and depth==3:
+        print "Annotation image depth does not match actual image depth. Use actual image depth"
+        depth = 1
+    if isgrey == False and depth == 1:
+        print "Annotation image depth does not match actual image depth. Use actual image depth"
+        depth = 3
+    
     print 'Seen labels:\t', train_labels
     print 'Given labels:\t', config['model']['labels']
     print 'Overlap labels:\t', overlap_labels    
@@ -103,7 +117,8 @@ def _main_(args):
     ###############################
 
     yolo = YOLO(architecture        = config['model']['architecture'],
-                input_size          = config['model']['input_size'], 
+                input_size          = config['model']['input_size'],
+                input_depth         = depth,
                 labels              = config['model']['labels'], 
                 max_box_per_image   = config['model']['max_box_per_image'],
                 anchors             = config['model']['anchors'])
